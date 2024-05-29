@@ -1,1 +1,1 @@
-# Poisson-Balanced-Spiking-Neural-Network
+# Poisson-Balanced-Spiking-Network

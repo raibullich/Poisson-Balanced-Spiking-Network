@@ -1,118 +1,192 @@
-
-# imports
 import numpy as np
+import matplotlib.pyplot as plt
 
-# Network implementation of local balanced network from Rullán-Buxó and Pillow (2019)
-# Update from their model: quadratic cost term is only now applied to the neuron's self-connection. Delays only in recurrent connections.
+class LocalBalancedNetwork:
+    """
+    A class representing a locally balanced neural network model.
 
-def run_local_framework(input, dt, params):
-  '''
-    Simulates a neural network with local balanced connections.
+    This model simulates the dynamics of a network of neurons with balanced excitatory and inhibitory connections, 
+    and can only take 1-dimensional input. The model uses Euler's method for numerical integration and includes 
+    mechanisms for spiking activity based on conditional intensity.
 
-    Parameters:
-    input (ndarray): Input signal that the network has to copy. Shape (nT, nd), where nT is the number of time bins and nd is the number of dimensions.
-    dt (float): Size of the time steps for the simulation.
-    params (dict): Dictionary containing the following parameters:
-        - N (int): Number of neurons in the network.
-        - tdel (int): Time delay in time bins for the recurrent connections.
-        - alpha (float): Precision parameter for the conditional intensity function.
-        - F_max (float): Maximum firing rate of the neurons.
-        - F_min (float): Minimum firing rate of the neurons.
-        - tau (float): Time constant for the decay rate of the filtered spike train.
-        - mu (float): Quadratic cost term applied to the neuron's self-connection.
-        - D_mean (float): Desired mean for the decoding weights.
-        - D_noise (float): Standard deviation of the random noise added to the decoding weights.
+    Attributes:
+        N (int): Number of neurons in the network.
+        tdel (int): Time delay for recurrent connections.
+        alpha (float): Gain parameter for the conditional intensity function.
+        F_max (float): Maximum firing rate.
+        F_min (float): Minimum firing rate.
+        lam (float): Quadratic cost term (1/tau).
+        mu (float): Linear cost term
+        dt (float): Time step for the simulation.
+        D (ndarray): Weight matrix with balanced positive and negative weights.
+        threshold (ndarray): Spike threshold for each neuron.
+    
+    Methods:
+        __init__(self, params):
+            Initializes the network with given parameters.
 
-    Returns:
-    tuple: A tuple containing the following elements:
-        - s (ndarray): Spike train of the neurons. Shape (N, nT + 1 + tdel).
-        - r (ndarray): Filtered spike train. Shape (N, nT + 1 + tdel).
-        - v (ndarray): Membrane potentials (voltage) of the neurons. Shape (N, nT + 1 + tdel).
-        - estimate (ndarray): Estimated output signal of the network. Shape (nd, nT).
-        - threshold (ndarray): Threshold values for the neurons. Shape (N,).
-        - D (ndarray): Decoding weights. Shape (1, N).
-        - spike_idx_neurons (list of ndarray): Indices of spikes for each neuron.
-        - error (ndarray): Mean squared error between the input signal and the estimated output signal. Shape (nT, nd).
-    '''
-  
-  ''' input: input = input that the network has to copu, dt = size of time steps of the simulation, params = parameters
-      output: r = filtered spike train, s = spike train, v = voltage, estimate, threshold, D = decoding weights, spike_idx_neurons = spike indices, error = MSE'''
-  
-  # input
-  input = input
-  d_input = np.gradient(input[:,0])/dt # derivative of the input
+        run(self, input):
+            Runs the network simulation on the given input and returns various outputs including spike trains, 
+            filtered spike trains, voltages, estimates, thresholds, weights, spike indices, and error.
 
-  # extract parameters
-  nT, nd = np.shape(input) # extract number of time bins and dimensions of the input
-  N = params['N'] # number of neurons
-  tdel = params['tdel'] # time delay in time bins
+        add PLOTTING FUNCTIONS
 
-  # params for conditional intensity (nonlinearity)
-  alpha = params['alpha'] # precision (change that)
-  F_max = params['F_max'] # maximum firing rate
-  F_min = params['F_min'] # minimum firing rate
+    """
 
-  # dynamics
-  lam = 1/params['tau'] # decay rate for filtered spike train
+    def __init__(self, params):
+        """
+        Initializes the LocalBalancedNetwork with the given parameters.
 
-  # cost terms
-  mu = params['mu'] # quadratic cost term
-  spiking_cost = params['mu']*lam**2 # cost on spiking
+        Args:
+            params (dict): A dictionary containing the following keys:
+                'N' (int): Number of neurons.
+                'tdel' (int): Time delay for recurrent connections.
+                'alpha' (float): Gain parameter for the conditional intensity function.
+                'F_max' (float): Maximum firing rate.
+                'F_min' (float): Minimum firing rate.
+                'tau' (float): Quadratic cost term
+                'mu' (float): Linear cost term
+                'dt' (float): Time step for the simulation.
+                'D_mean' (float): Mean of the weight matrix D.
+                'D_noise' (float): Standard deviation of the noise added to the weight matrix D.
+        """
+        self.N = params['N']            # Number of neurons.
+        self.tdel = params['tdel']      # Time delay for recurrent connections.
+        self.alpha = params['alpha']    # Gain parameter for the conditional intensity function.
+        self.F_max = params['F_max']    # Maximum firing rate.
+        self.F_min = params['F_min']    # Minimum firing rate.
+        self.lam = 1 / params['tau']    # Quadratic cost term
+        self.mu = params['mu']          # Linear cost term (omitted due to no ping-pong effect)
+        self.T = params['T']            # Time simulation (s)
+        self.dt = params['dt']          # Timestep
+        
+        # Generate weights
+        self.D = np.ones((1, self.N))
+        self.D[:, :(int(self.N / 2))] = -1                                      # Balanced positive vs negative weights
+        self.D = (self.D / np.linalg.norm(self.D, axis=0) * params['D_mean'] + 
+                  np.random.randn(1, self.N) * params['D_noise'])               # Normalize and add noise
+        
+        # Threshold
+        self.threshold = (self.mu / self.lam ** 2 + np.diag(self.D.T @ self.D)) / 2
 
-  # generate weights
-  D = np.ones((1,N))
-  D[:,:(int(N/2))] = -1 # get balanced positive vs negative weights
-  D =(D/np.linalg.norm(D, axis = 0)*params['D_mean'] + np.random.randn(1,N)*params['D_noise']) # normalize weights, set desired mean and add random noise
-  print(D)
+        # Identity matrix
+        self.I = np.identity(self.N)
+        
+    def run(self, input):
+        """
+        Runs the network simulation on the given input.
 
-  #threshold
-  threshold = (mu/lam**2 + np.diag(D.T@D))/2
+        Args:
+            input (ndarray): Input signal of shape (nT, 1), where nT is the number of time steps.
+        
+        Returns:
+            tuple: A tuple containing the following elements:
+                - s (ndarray): Spike trains of shape (N, nT + 1 + tdel).
+                - r (ndarray): Filtered spike trains of shape (N, nT + 1 + tdel).
+                - v (ndarray): Voltages of shape (N, nT + 1 + tdel).
+                - estimate (ndarray): Estimate of the input signal.
+                - threshold (ndarray): Spike threshold for each neuron.
+                - D (ndarray): Weight matrix.
+                - spike_idx_neurons (list): List of arrays containing spike indices for each neuron.
+                - error (ndarray): Mean squared error between the input and the estimate.
+        """
+        self.input = input
 
-  # initialize network variables
-  v = np.zeros([N,nT+1+tdel]) # voltage
-  s = np.zeros([N,nT+1+tdel]) # spike train
-  r = np.zeros([N,nT+1+tdel]) # filtered spike trains
-  prob_spike = np.zeros([N, nT+tdel]) #prob spike
-  I = np.identity(N) # identity matrix (used to apply cost term only to the diagonal of the weight matrices, meaning that the cost term is only for one neuron!! just self connections)
+        nT, nd = input.shape  # Extract number of time bins and dimensions of the input
+        d_input = np.gradient(input[:, 0]) / self.dt  # Derivative of the input
+        
+        # Initialize variables
+        v = np.zeros((self.N, nT + 1 + self.tdel))  # Voltage
+        s = np.zeros((self.N, nT + 1 + self.tdel))  # Spike train
+        r = np.zeros((self.N, nT + 1 + self.tdel))  # Filtered spike trains
+        prob_spike = np.zeros((self.N, nT + self.tdel))  # Probability of spike
 
-  r[:,0] =np.linalg.pinv(D) @ input[0]
-  v[:,0] = D.T @ (input[0]-D@r[:,0])
+        r[:, 0] = np.linalg.pinv(self.D) @ input[0]
+        v[:, 0] = self.D.T @ (input[0] - self.D @ r[:, 0])
 
-  # run network simulation (euler method)
-  for t in range(nT):
+        # Run network simulation (Euler method)
+        for t in range(nT):
+            # Update filtered spike trains
+            dr = -self.lam * r[:, t] + s[:, t]
+            r[:, t + 1] = r[:, t] + dr * self.dt
 
-    # update filtered spike trains
-    dr = -lam*r[:,t] + s[:,t]
-    r[:,t+1] = r[:,t] + dr*dt
+            # Update voltage
+            W_self = (np.diag(self.D.T @ self.D) + (self.mu / self.lam ** 2)) * self.I
+            W_recurrent = self.D.T @ self.D
+            np.fill_diagonal(W_recurrent, 0)  # Set self connections to 0
+            dv = (-self.lam * v[:, t] + 
+                  self.D.T @ (self.lam * input[t] + d_input[t]) - 
+                  (W_self @ s[:, t] + W_recurrent @ s[:, t - self.tdel]))  # Only add delay to recurrent connection
+            v[:, t + 1] = v[:, t] + dv * self.dt
 
-    # update voltage
-    W_self = (np.diag(D.T@D) + (mu/lam**2))*I # make sure of what is the ORDER of the matrix multiplication || self connections
-    W_recurrent = D.T@D
-    W_recurrent[np.diag_indices(N)] = 0 # set self connetions to 0 || these are recurrent connections
-    dv = -lam*v[:,t] + D.T@(lam*input[t]+d_input[t]) - (W_self@s[:,t] + W_recurrent@s[:,t-tdel]) # only add a delay to the recurrent connection (NOT self)
-    v[:,t+1] = v[:,t] + dv*dt
+            # Compute spike rate and probability of spike (in self.dt)
+            conditional_intensity = (self.F_max / 
+                                     (1 + self.F_max * np.exp(-self.alpha * (v[:, t + 1] - self.threshold))) + 
+                                     self.F_min)  # Conditional intensity
+            prob_spike[:, t] = 1 - np.exp(-conditional_intensity * self.dt)  # Probability of spike
 
-    # compute spike rate and probability of spike (in dt)
-    conditional_intensity = F_max/(1+F_max*np.exp(-alpha*(v[:,t+1]-threshold))) + F_min # find contitional intensity (lambda): instantaneous firing rate
-    prob_spike[:, t] = 1-np.exp(-conditional_intensity*dt) # convert firing rate to probability of spike
+            # Spiking
+            rand = np.random.rand(1, self.N)
+            spike = np.where(prob_spike[:, t] > rand[0, :])[0]  # Find neurons that spike
+            if len(spike):
+                s[spike, t + 1] = 1 / self.dt
 
-    # spiking
-    rand = np.random.rand(1,N)
-    spike = np.where(prob_spike[:, t] > rand[0,:])[0] # find neurons that spike
-    # find neurons that spike
-    if len(spike):
-      s[spike, t+1] = 1/dt
+        # Get estimate
+        estimate = self.D @ r
+
+        # Get spike index for all neurons
+        spike_idx_neurons = []
+        for n in range(len(s)):
+            spike_idx_neurons.append(np.where(s[n] != 0)[0])
+
+        # Compute mean squared error (MSE) between estimate and input
+        error = (input - estimate.T[:nT]) ** 2
+
+        # save all outputs
+        self.s = s
+        self.r = r
+        self.v = v
+        self.estimate = estimate
+        self.spike_idx_neurons = spike_idx_neurons
+        self.error = error
+        
+        return s, r, v, estimate, self.threshold, self.D, spike_idx_neurons, error
+    
+    # plotting functions
+    # plot target output vs the network estimmate
+    def plot_target_vs_estimate(self):
+
+      x = np.arange(0, self.T, self.dt)
+      fig, ax = plt.subplots(1, figsize=(15,5))
+      ax.plot(x, self.estimate.T[:-1], label='estimate')
+      ax.plot(x, self.input, label='target')
+      ax.set(xlabel='Time (seconds)', ylabel='Relative current')
+      ax.set_title('Target output vs Network estimate', fontsize=15)
+
+      ax.legend(loc='upper right')
+      fig.tight_layout()
+      plt.show()
+
+    # Plot spikes through time for all neurons (raster plot)
+    def plot_raster(self):
+        fig = plt.figure(figsize = (15,5))
+        axs = fig.add_subplot()
+
+        x = np.arange(0, self.T, self.dt)
+        for n in range(self.N): # params['N']
+            if self.D[:, n] > 0:
+                color = 'C0'
+            else:
+                color = 'tab:red'
+            axs.eventplot(x[self.spike_idx_neurons[n]], lineoffset = n+1, linelength = 0.5, colors = color)
+
+        axs.set(xlabel = 'Time simulation (seconds)', ylabel = 'N = {}'.format(self.N), yticks = [], ylim=([0,self.N+1]))
+        axs.set_title('Raster plot during simulation', fontsize=17)
+        labels = [plt.Line2D([0], [0], color='C0', label = '$+$ weight'), plt.Line2D([0], [0], color = 'C3', label = '$-$ weight')]
+        fig.legend(handles = labels, loc = 'upper center', bbox_to_anchor = (0.8, 0.98), ncol=2)
+        plt.show()
+
+    
 
 
-  # get estimate
-  estimate = D@r
 
-  # get spike index for all neurons
-  spike_idx_neurons = []
-  for n in range(len(s)):
-    spike_idx_neurons.append(np.where(s[n] != 0)[0])
-
-  # compute mean squared error (MSE) between estimate vs input
-  error = (input - estimate.T[:nT])**2
-
-  return s, r, v, estimate, threshold, D, spike_idx_neurons, error

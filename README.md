@@ -19,7 +19,3 @@ Show very basic plots in a notebook
 - 1 colab to merge both and show plots
 
 Include plots/figures in the main document
-
-
-
-

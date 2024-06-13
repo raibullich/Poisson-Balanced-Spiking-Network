@@ -7,15 +7,9 @@ The implementation can be found in the file model_local.py, which is a very clos
 This work is part of my master thesis supervised by Fleur Zeldernust and Sander Keemink, at the Donders Institute (Nijmegen, the Netherlands). If you want to know more details about the thesis and get an idea of what was the whole project about, feel free to take a look at it! You can find the thesis [here](https://theses.ubn.ru.nl/server/api/core/bitstreams/95edb5d2-6b0c-41c7-b615-a1ac4b502c5f/content).
 
 ### Probabilistic (soft) threshold and the activation function.
-But what does it mean to have a probabilistic threshold? The idea is quite straightforward...
+
+But what does it mean to have a probabilistic threshold? To be explained...
 
 ### Sketching the main idea and derivation of the network.
 
-Show very basic plots in a notebook
-
-
-- 1 class for the network
-- 1 file for functions
-- 1 colab to merge both and show plots
-
-Include plots/figures in the main document
+To be done...

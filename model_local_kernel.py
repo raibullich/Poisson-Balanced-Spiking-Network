@@ -83,7 +83,7 @@ class LocalBalancedNetworkKernel:
 
             Args:
                 input (ndarray): Input signal of shape (nT, 1), where nT is the number of time steps.
-            
+                kernel (ndarray): kernel used to filter spikes of shape (len(input)).
             Returns:
                 tuple: A tuple containing the following elements:
                     - s (ndarray): Spike trains of shape (N, nT + 1 + tdel).

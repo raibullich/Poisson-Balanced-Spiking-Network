@@ -8,8 +8,8 @@ This work is part of my master thesis supervised by Fleur Zeldernust and Sander 
 
 ### Probabilistic (soft) threshold and the activation function.
 
-But what does it mean to have a probabilistic threshold? To be explained...
+But what does it mean to have a probabilistic threshold? Until I develop this here, you can take a look at my theses, where I explain this in detail.
 
 ### Sketching the main idea and derivation of the network.
 
-To be done...
+To be done... Again, feel free to take a look at the main references or my thesis for the derivation of the network.
